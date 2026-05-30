@@ -1,6 +1,6 @@
 import os
 # ==========================================
-# 【終極大絕招】強制關閉 OpenBB 啟動時的自動構建與鎖定檔機制
+# 【終極防線】強制關閉 OpenBB 啟動時的自動構建與鎖定檔機制
 # ==========================================
 os.environ["OPENBB_AUTO_BUILD"] = "False"
 os.environ["OPENBB_BUILD"] = "False"
@@ -83,7 +83,7 @@ def fetch_and_process_data(tickers, benchmark_ticker, bond_10y_ticker):
             return None, None, None, None
 
 # ==========================================
-# 2. 側邊欄配置 (Sidebar)
+# 2. 側邊欄配置 (Sidebar) - 分享給朋友時，他們也可以任意更改
 # ==========================================
 st.sidebar.header("⚙️ 偵測雷達參數配置")
 ticker_input = st.sidebar.text_area(
@@ -151,7 +151,7 @@ stop_loss_prices = {}
 take_profit_prices = {}
 
 # ==========================================
-# 5. 決策樹核心過濾系統 (字串縮短，省下巨大橫向空間)
+# 5. 決策樹核心過濾系統 (文字精簡優化，節省橫向空間)
 # ==========================================
 for t in tickers:
     if t not in current_price.index: continue
@@ -246,7 +246,9 @@ with col_macro3:
 
 st.markdown("---")
 
-# 上層：大表格獨佔 100% 寬度
+# ==========================================
+# 上層：大表格獨佔 100% 寬度（上下分層排版）
+# ==========================================
 st.subheader("📊 策略雷達掃描矩陣")
 
 display_df = dashboard.copy()
@@ -259,7 +261,7 @@ display_df['決策樹修正總分'] = display_df['決策樹修正總分'].map(la
 display_df = display_df[['決策樹系統分類', '當前價', '20MA位置', '機構吸籌', '5日量能', '圖表安全止損位', '圖表預期止盈位', '動態配資權重_顯示', '決策樹修正總分']]
 display_df.columns = ['系統分類', '當前價', '20MA位置', '機構籌碼', '5日量比', '建議止損位', '預期止盈位', '配資權重', '策略總分']
 
-# 【核心改善】使用官方原生 column_config，強迫縮減各欄寬度，直接在畫面上舒展，免除捲軸
+# 透過內建 column_config 強制收緊各欄寬度，讓所有欄位一次性直接在畫面平鋪展開，免去滑動條
 st.dataframe(
     display_df, 
     use_container_width=True, 
@@ -279,7 +281,9 @@ st.dataframe(
 
 st.markdown("---")
 
-# 下層：圓餅圖獨立置中
+# ==========================================
+# 下層：圓餅圖獨立置中放大
+# ==========================================
 allocated_sum = dashboard['動態配資比率'].sum()
 cash_ratio = 1.0 - allocated_sum
 
@@ -301,11 +305,12 @@ fig.update_layout(
     title_font=dict(size=18),
     title_x=0.44, 
     showlegend=True, 
-    legend=dict(orientation="h", yanchor="bottom", y=-0.12, xanchor="center", x=0.5),
+    legend=dict(orientation="h", yanchor="bottom", y=-0.12, xanchor="center", x=0.5), # 精美橫式圖例
     margin=dict(t=60, b=60, l=10, r=10), 
     height=550
 )
 
+# 利用三欄式比例容器強行將圓餅圖垂直居中顯示
 col_space1, col_pie_main, col_space2 = st.columns([1, 2, 1])
 with col_pie_main:
     st.plotly_chart(fig, use_container_width=True)
