@@ -113,7 +113,7 @@ if st.sidebar.button("🔄 立即重新整理數據"):
 # 3. 主畫面與數據載入
 # ==========================================
 st.title("🦅 Trading Agent V5.2 控制台")
-st.subheader("OpenBB 數據引擎雲端版 — 成功突破 Linux 權限鎖，重返機構級數據軌道")
+st.subheader("OpenBB 數據引擎雲端版")
 st.markdown("---")
 
 if not tickers:
