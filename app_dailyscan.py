@@ -23,14 +23,13 @@ st.set_page_config(
 )
 
 # ==========================================
-# 1. 數據獲取與核心計算邏輯 (多人安全快取雙引擎)
+# 1. 數據獲取與核心計算邏輯 (自適應單/多股引擎)
 # ==========================================
-@st.cache_data(ttl=1800, show_spinner=False)  # 快取縮短為30分鐘，並優化加載防止連線中斷
+@st.cache_data(ttl=1800, show_spinner=False)
 def fetch_and_process_data(tickers_tuple, benchmark_ticker, bond_10y_ticker):
-    # 將傳入的 tuple 轉回 list 處理
     tickers = list(tickers_tuple)
     try:
-        # 【嘗試引擎 A】：OpenBB v4 標準最新語法
+        # 【嘗試引擎 A】：OpenBB v4 標準語法
         data_raw = obb.equity.price.historical(
             symbol=",".join(tickers),
             provider="yfinance",
@@ -44,25 +43,23 @@ def fetch_and_process_data(tickers_tuple, benchmark_ticker, bond_10y_ticker):
         bond_raw = obb.equity.price.historical(symbol=bond_10y_ticker, provider="yfinance", start_date=(pd.Timestamp.now() - pd.Timedelta(days=90)).strftime('%Y-%m-%d'))
         bond_df = bond_raw.to_dataframe()['close'].squeeze()
         
-        # 解析與標準化對齊數據
+        # 強制標準化轉換：確保無論一檔還是多檔，輸出都是 DataFrame 格式
         if 'symbol' in data_df.columns:
-            price_df = data_df.pivot(columns='symbol', values='close').ffill().fillna(0)
+            price_df = data_df.pivot(columns='symbol', values='close').ffill()
             volume_df = data_df.pivot(columns='symbol', values='volume').fillna(0)
         elif isinstance(data_df.index, pd.MultiIndex):
-            price_df = data_df['close'].unstack(level='symbol').ffill().fillna(0)
+            price_df = data_df['close'].unstack(level='symbol').ffill()
             volume_df = data_df['volume'].unstack(level='symbol').fillna(0)
         else:
-            if len(tickers) == 1:
-                price_df = pd.DataFrame({tickers[0]: data_df['close']})
-                volume_df = pd.DataFrame({tickers[0]: data_df['volume']})
-            else:
-                price_df = data_df.pivot(columns='symbol', values='close').ffill().fillna(0)
-                volume_df = data_df.pivot(columns='symbol', values='volume').fillna(0)
+            # 只有一檔股票的特殊邊界狀況防禦
+            active_ticker = tickers[0]
+            price_df = pd.DataFrame({active_ticker: data_df['close']}).ffill()
+            volume_df = pd.DataFrame({active_ticker: data_df['volume']}).fillna(0)
                 
         return price_df, volume_df, bench_df, bond_df
 
     except Exception as e:
-        # 【啟動防線 B】：萬一雲端 OpenBB 罷工，立刻無縫切換至純 yfinance 備援
+        # 【防線 B】： yfinance 備援引擎 (同樣加入單/多股標準化)
         try:
             import yfinance as yf
             data_raw = yf.download(tickers, period="3mo", group_by='ticker', progress=False)
@@ -72,13 +69,24 @@ def fetch_and_process_data(tickers_tuple, benchmark_ticker, bond_10y_ticker):
             bench_df = bench_raw['Close'].squeeze()
             bond_df = bond_raw['Close'].squeeze()
             
+            price_df = pd.DataFrame(index=bench_df.index)
+            volume_df = pd.DataFrame(index=bench_df.index)
+            
             if len(tickers) == 1:
-                price_df = pd.DataFrame({tickers[0]: data_raw['Close']})
-                volume_df = pd.DataFrame({tickers[0]: data_raw['Volume']})
+                t = tickers[0]
+                if not data_raw.empty:
+                    target_col = 'Close' if 'Close' in data_raw.columns else ('Adj Close' if 'Adj Close' in data_raw.columns else None)
+                    if target_col:
+                        price_df[t] = data_raw[target_col]
+                        volume_df[t] = data_raw['Volume']
             else:
-                price_df = pd.DataFrame({t: data_raw[t]['Close'] for t in tickers if t in data_raw.columns.levels[0]}).ffill().fillna(0)
-                volume_df = pd.DataFrame({t: data_raw[t]['Volume'] for t in tickers if t in data_raw.columns.levels[0]}).fillna(0)
-                
+                for t in tickers:
+                    if t in data_raw.columns.levels[0]:
+                        price_df[t] = data_raw[t]['Close']
+                        volume_df[t] = data_raw[t]['Volume']
+            
+            price_df = price_df.ffill()
+            volume_df = volume_df.fillna(0)
             return price_df, volume_df, bench_df, bond_df
         except Exception as inner_e:
             st.sidebar.error(f"所有數據引擎均獲取失敗: {str(inner_e)}")
@@ -92,7 +100,8 @@ ticker_input = st.sidebar.text_area(
     "監控標的群組 (用逗號隔開)", 
     "NVDA, TSLA, ARM, AMD, DELL, INTC, NOK, MRVL, MU, ANET, BB, AMZN, META, MSFT, AVGO"
 )
-tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
+# 自動過濾掉空格與因手殘打錯產生的奇形怪狀字元
+tickers = [t.strip().upper() for t in ticker_input.replace("，", ",").split(",") if t.strip() and t.strip().isalpha()]
 benchmark_ticker = st.sidebar.text_input("大盤對照基準", "QQQ")
 bond_10y_ticker = st.sidebar.text_input("美債殖利率錨定", "^TNX")
 
@@ -107,46 +116,65 @@ st.title("🦅 Trading Agent V5.2 控制台")
 st.subheader("OpenBB 數據引擎雲端版 — 成功突破 Linux 權限鎖，重返機構級數據軌道")
 st.markdown("---")
 
+if not tickers:
+    st.warning("⚠️ 請在左側輸入至少一檔有效的股票代號（例如: NVDA）。")
+    st.stop()
+
 with st.spinner("🕵️ Agent 正在調取量化交易數據歷史..."):
-    # 使用 tuple 傳入確保快取機制完全安全，不發生多人衝突
     price_df, volume_df, bench_df, bond_df = fetch_and_process_data(tuple(tickers), benchmark_ticker, bond_10y_ticker)
 
 if price_df is None or price_df.empty:
-    st.error("⚠️ 獲取數據時發生異常，請檢查代號、網路或 Secrets 配置後重試。")
+    st.error("⚠️ 獲取數據時發生異常，請檢查代號是否正確、網路或 Secrets 配置後重試。")
+    st.stop()
+
+# 有些股票可能因打錯找不到，重新校正最終有拿到數據的 tickers 清單
+valid_tickers = [t for t in tickers if t in price_df.columns]
+
+if not valid_tickers:
+    st.error("⚠️ 輸入的標的皆無法取得有效的歷史價格，請檢查美股代號。")
     st.stop()
 
 # ==========================================
-# 4. 量化因子計算
+# 4. 自適應量化因子計算 (防禦單股變異)
 # ==========================================
 current_bond_yield = float(bond_df.iloc[-1])
 bond_ma20 = float(bond_df.rolling(20).mean().iloc[-1])
 macro_risk_trigger = current_bond_yield > bond_ma20
 
-current_price = price_df.iloc[-1]
-ma20 = price_df.rolling(20).mean().iloc[-1]
-ma50 = price_df.rolling(50).mean().iloc[-1]
-std20 = price_df.rolling(20).std().iloc[-1]
+current_price = price_df[valid_tickers].iloc[-1]
+ma20 = price_df[valid_tickers].rolling(20).mean().iloc[-1]
+ma50 = price_df[valid_tickers].rolling(50).mean().iloc[-1]
+std20 = price_df[valid_tickers].rolling(20).std().iloc[-1]
 bollinger_upper = ma20 + (2 * std20)
 bollinger_lower = ma20 - (2 * std20)
 
 factor_momentum = (current_price - ma50) / ma50.replace(0, np.nan)
-v_ma5 = volume_df.rolling(5).mean().iloc[-1]
-v_ma20 = volume_df.rolling(20).mean().iloc[-1]
+v_ma5 = volume_df[valid_tickers].rolling(5).mean().iloc[-1]
+v_ma20 = volume_df[valid_tickers].rolling(20).mean().iloc[-1]
 factor_volume = v_ma5 / v_ma20.replace(0, np.nan)
 
-daily_ret = price_df.pct_change()
-obv = pd.DataFrame(0.0, index=price_df.index, columns=price_df.columns)
-for t in tickers:
-    if t in price_df.columns:
-        direction = np.sign(daily_ret[t]).fillna(0)
-        obv[t] = (direction * volume_df[t]).cumsum()
+daily_ret = price_df[valid_tickers].pct_change()
+obv = pd.DataFrame(0.0, index=price_df.index, columns=valid_tickers)
+for t in valid_tickers:
+    direction = np.sign(daily_ret[t]).fillna(0)
+    obv[t] = (direction * volume_df[t]).cumsum()
 obv_slope = (obv.iloc[-1] - obv.iloc[-10]) / obv.iloc[-10].replace(0, np.nan)
-price_change_10d = (price_df.iloc[-1] - price_df.iloc[-10]) / price_df.iloc[-10].replace(0, np.nan)
+price_change_10d = (price_df[valid_tickers].iloc[-1] - price_df[valid_tickers].iloc[-10]) / price_df[valid_tickers].iloc[-10].replace(0, np.nan)
 factor_accumulation = obv_slope - price_change_10d
 
-z_a = (factor_momentum - factor_momentum.mean()) / (factor_momentum.std() if factor_momentum.std() != 0 else 1)
-z_b = (factor_volume - factor_volume.mean()) / (factor_volume.std() if factor_volume.std() != 0 else 1)
-z_c = (factor_accumulation - factor_accumulation.mean()) / (factor_accumulation.std() if factor_accumulation.std() != 0 else 1)
+# 安全統計轉化：當只有一檔或兩檔股票時，Series 的 std() 為 0 或 NaN，此處做安全填補
+momentum_std = factor_momentum.std() if len(valid_tickers) > 1 and factor_momentum.std() != 0 else 1
+volume_std = factor_volume.std() if len(valid_tickers) > 1 and factor_volume.std() != 0 else 1
+accum_std = factor_accumulation.std() if len(valid_tickers) > 1 and factor_accumulation.std() != 0 else 1
+
+z_a = (factor_momentum - factor_momentum.mean()) / momentum_std
+z_b = (factor_volume - factor_volume.mean()) / volume_std
+z_c = (factor_accumulation - factor_accumulation.mean()) / accum_std
+
+# 轉化回 Series 結構防止單股計算失效
+z_a = pd.Series(z_a, index=valid_tickers).fillna(0)
+z_b = pd.Series(z_b, index=valid_tickers).fillna(0)
+z_c = pd.Series(z_c, index=valid_tickers).fillna(0)
 total_scores = z_a * 0.40 + z_b * 0.30 + z_c * 0.30
 
 system_tags = {}
@@ -154,10 +182,9 @@ stop_loss_prices = {}
 take_profit_prices = {}
 
 # ==========================================
-# 5. 決策樹核心過濾系統
+# 5. 決策樹邏輯
 # ==========================================
-for t in tickers:
-    if t not in current_price.index: continue
+for t in valid_tickers:
     p = current_price[t]
     m20 = ma20[t]
     b_up = bollinger_upper[t]
@@ -206,7 +233,7 @@ for t in tickers:
         total_scores[t] -= 1.5
 
 # ==========================================
-# 6. 構建資料表與動態配資
+# 6. 資料表與權重分配
 # ==========================================
 dashboard = pd.DataFrame({
     '當前價': current_price,
@@ -217,7 +244,7 @@ dashboard = pd.DataFrame({
     '圖表安全止損位': pd.Series(stop_loss_prices),
     '圖表預期止盈位': pd.Series(take_profit_prices),
     '決策樹修正總分': total_scores
-}).dropna(subset=['決策樹系統分類']).sort_values(by='決策樹修正總分', ascending=False)
+}, index=valid_tickers).sort_values(by='決策樹修正總分', ascending=False)
 
 total_allocation = 0.25 if macro_risk_trigger else 0.60
 positive_stocks = dashboard[dashboard['決策樹修正總分'] > 0]
@@ -227,14 +254,19 @@ dashboard['動態配資權重_顯示'] = "0.0%"
 
 if not positive_stocks.empty:
     scores_pos = positive_stocks['決策樹修正總分']
-    shifted_scores = scores_pos - scores_pos.min() + 1
-    weights = (shifted_scores / shifted_scores.sum()) * total_allocation
+    # 修正：單股時分數分布做安全歸一
+    if len(scores_pos) == 1:
+        weights = pd.Series([total_allocation], index=scores_pos.index)
+    else:
+        shifted_scores = scores_pos - scores_pos.min() + 1
+        weights = (shifted_scores / shifted_scores.sum()) * total_allocation
+        
     for t in positive_stocks.index:
         dashboard.loc[t, '動態配資比率'] = float(weights[t])
         dashboard.loc[t, '動態配資權重_顯示'] = f"{weights[t]*100:.1f}%"
 
 # ==========================================
-# 7. 網頁 UI 渲染區 (全尺寸抗干擾精準版)
+# 7. UI 渲染
 # ==========================================
 col_macro1, col_macro2, col_macro3 = st.columns(3)
 with col_macro1:
@@ -248,7 +280,6 @@ with col_macro3:
     st.metric(label="核心風險防禦系統 — 建議總權限位上限", value=f"{total_allocation*100:.0f}%")
 
 st.markdown("---")
-
 st.subheader("📊 策略雷達掃描矩陣")
 
 display_df = dashboard.copy()
@@ -261,11 +292,10 @@ display_df['決策樹修正總分'] = display_df['決策樹修正總分'].map(la
 display_df = display_df[['決策樹系統分類', '當前價', '20MA位置', '機構吸籌', '5日量能', '圖表安全止損位', '圖表預期止盈位', '動態配資權重_顯示', '決策樹修正總分']]
 display_df.columns = ['系統分類', '當前價', '20MA位置', '機構籌碼', '5日量比', '建議止損位', '預期止盈位', '配資權重', '策略總分']
 
-# 精確定義寬度配置，防止任何縮放導致的欄位溢出
 st.dataframe(
     display_df, 
     use_container_width=True, 
-    height=540,
+    height=400,
     column_config={
         "系統分類": st.column_config.TextColumn("系統分類", width="medium"),
         "當前價": st.column_config.TextColumn("當前價", width="small"),
@@ -281,9 +311,9 @@ st.dataframe(
 
 st.markdown("---")
 
-# 下層：圓餅圖獨立置中
+# 下層圓餅圖 (支援單股配資 100% 現金劃分)
 allocated_sum = dashboard['動態配資比率'].sum()
-cash_ratio = 1.0 - allocated_sum
+cash_ratio = max(0.0, 1.0 - allocated_sum)
 
 pie_data = dashboard[dashboard['動態配資比率'] > 0].copy()
 cash_row = pd.DataFrame({'動態配資比率': [cash_ratio]}, index=['💵 現金防守水位 (Cash)'])
@@ -313,4 +343,4 @@ with col_pie_main:
     st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("---")
-st.caption(f"數據最後更新日期：{price_df.index[-1].strftime('%Y-%m-%d')} | 驅動核心：OpenBB Core v4 Standard / yfinance Intelligent Engine")
+st.caption(f"數據最後更新日期：{price_df.index[-1].strftime('%Y-%m-%d')} | 驅動核心：OpenBB Core v4 / yfinance Robust Multi-Engine")
