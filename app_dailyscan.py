@@ -10,21 +10,21 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-from openbb import obb
+from openbb import obb  # 榮耀回歸！
 
 # ==========================================
 # 0. 網頁基本設定 (必須在最上層)
 # ==========================================
 st.set_page_config(
-    page_title="Trading Agent V5.2 - OpenBB 數據核心版",
+    page_title="Trading Agent V5.2 - OpenBB 雲端核心版",
     page_icon="🦅",
     layout="wide"
 )
 
 # ==========================================
-# 1. 數據獲取與核心計算邏輯 (加入 Streamlit 快取機制)
+# 1. 數據獲取與核心計算邏輯
 # ==========================================
-@st.cache_data(ttl=3600)  # 快取 1 小時，避免重複頻繁請求數據
+@st.cache_data(ttl=3600)  # 快取 1 小時
 def fetch_and_process_data(tickers, benchmark_ticker, bond_10y_ticker):
     try:
         # 抓取個股數據
@@ -48,6 +48,7 @@ def fetch_and_process_data(tickers, benchmark_ticker, bond_10y_ticker):
             
         return price_df, volume_df, bench_df, bond_df
     except Exception as e:
+        st.sidebar.error(f"OpenBB 引擎抓取失敗: {str(e)}")
         return None, None, None, None
 
 # ==========================================
@@ -62,7 +63,6 @@ tickers = [t.strip().upper() for t in ticker_input.split(",")]
 benchmark_ticker = st.sidebar.text_input("大盤對照基準", "QQQ")
 bond_10y_ticker = st.sidebar.text_input("美債殖利率錨定", "^TNX")
 
-# 重新整理按鈕
 if st.sidebar.button("🔄 立即重新整理數據"):
     st.cache_data.clear()
     st.rerun()
@@ -71,21 +71,21 @@ if st.sidebar.button("🔄 立即重新整理數據"):
 # 3. 主畫面與數據載入
 # ==========================================
 st.title("🦅 Trading Agent V5.2 控制台")
-st.subheader("OpenBB 數據引擎升級版 — 修正指標邊界漏洞，完美融合機構鎖倉邏輯")
+st.subheader("OpenBB 數據引擎雲端版 — 成功突破 Linux 權限鎖，重返機構級數據軌道")
 st.markdown("---")
 
 with st.spinner("🕵️ Agent 正在從 OpenBB 調取機構級數據歷史..."):
     price_df, volume_df, bench_df, bond_df = fetch_and_process_data(tickers, benchmark_ticker, bond_10y_ticker)
 
-if price_df is None:
-    st.error("⚠️ OpenBB 獲取數據時發生異常，請檢查代號是否正確或稍後再試。")
+if price_df is None or price_df.empty:
+    st.error("⚠️ OpenBB 獲取數據時發生異常，請檢查代號或重試。")
     st.stop()
 
 # ==========================================
 # 4. 量化因子計算
 # ==========================================
-current_bond_yield = bond_df.iloc[-1]
-bond_ma20 = bond_df.rolling(20).mean().iloc[-1]
+current_bond_yield = float(bond_df.iloc[-1])
+bond_ma20 = float(bond_df.rolling(20).mean().iloc[-1])
 macro_risk_trigger = current_bond_yield > bond_ma20
 
 current_price = price_df.iloc[-1]
@@ -110,7 +110,6 @@ obv_slope = (obv.iloc[-1] - obv.iloc[-10]) / obv.iloc[-10].replace(0, np.nan)
 price_change_10d = (price_df.iloc[-1] - price_df.iloc[-10]) / price_df.iloc[-10].replace(0, np.nan)
 factor_accumulation = obv_slope - price_change_10d
 
-# 核心基礎分計算
 z_a = (factor_momentum - factor_momentum.mean()) / (factor_momentum.std() if factor_momentum.std() != 0 else 1)
 z_b = (factor_volume - factor_volume.mean()) / (factor_volume.std() if factor_volume.std() != 0 else 1)
 z_c = (factor_accumulation - factor_accumulation.mean()) / (factor_accumulation.std() if factor_accumulation.std() != 0 else 1)
@@ -120,9 +119,9 @@ system_tags = {}
 stop_loss_prices = {}
 take_profit_prices = {}
 
-# -------------------------------------------------------------------------
+# ==========================================
 # 5. 決策樹核心過濾系統
-# -------------------------------------------------------------------------
+# ==========================================
 for t in tickers:
     if t not in current_price.index: continue
     p = current_price[t]
@@ -201,10 +200,8 @@ if not positive_stocks.empty:
         dashboard.loc[t, '動態配資權重_顯示'] = f"{weights[t]*100:.1f}%"
 
 # ==========================================
-# 7. 網頁 UI 渲染區 (已修正冒號漏洞)
+# 7. 網頁 UI 渲染區
 # ==========================================
-
-# 頂部總經區塊
 col_macro1, col_macro2, col_macro3 = st.columns(3)
 with col_macro1:
     if macro_risk_trigger:
@@ -218,13 +215,10 @@ with col_macro3:
 
 st.markdown("---")
 
-# 視覺化看板：左邊表格，右邊配資圖
 col_left, col_right = st.columns([5, 3])
 
 with col_left:
     st.subheader("📊 策略雷達掃描矩陣")
-    
-    # 格式化輸出表格
     display_df = dashboard.copy()
     display_df['當前價'] = display_df['當前價'].map(lambda x: f"${x:.2f}")
     display_df['20MA位置'] = display_df['20MA位置'].map(lambda x: f"${x:.2f}")
@@ -232,27 +226,18 @@ with col_left:
     display_df['5日量能'] = display_df['5日量能'].map(lambda x: f"{x:.2f}x")
     display_df['決策樹修正總分'] = display_df['決策樹修正總分'].map(lambda x: f"{x:.2f}")
     
-    # 重新排列欄位順序更直覺
     display_df = display_df[['決策樹系統分類', '當前價', '20MA位置', '機構吸籌', '5日量能', '圖表安全止損位', '圖表預期止盈位', '動態配資權重_顯示', '決策樹修正總分']]
     display_df.columns = ['系統分類', '當前價', '20MA位置', '機構吸籌因子', '5日量比', '建議止損位', '預期止盈位', '動態配資權重', '策略修正總分']
     
-    # 使用最新 width="stretch" 語法
-    st.dataframe(display_df, width="stretch", height=500)
+    st.dataframe(display_df, use_container_width=True, height=500)
 
 with col_right:
     st.subheader("🎯 動態配資權重圓餅圖")
-    
-    # 製作圓餅圖數據，包含未配置的現金水位
     allocated_sum = dashboard['動態配資比率'].sum()
     cash_ratio = 1.0 - allocated_sum
     
     pie_data = dashboard[dashboard['動態配資比率'] > 0].copy()
-    
-    # 新增現金列
-    cash_row = pd.DataFrame({
-        '動態配資比率': [cash_ratio]
-    }, index=['💵 現金防守水位 (Cash)'])
-    
+    cash_row = pd.DataFrame({'動態配資比率': [cash_ratio]}, index=['💵 現金防守水位 (Cash)'])
     pie_df = pd.concat([pie_data[['動態配資比率']], cash_row])
     pie_df['標的'] = pie_df.index
     
@@ -265,9 +250,6 @@ with col_right:
     )
     fig.update_traces(textposition='inside', textinfo='percent+label')
     fig.update_layout(showlegend=False, margin=dict(t=10, b=10, l=10, r=10), height=450)
-    
-    # 使用最新 width="stretch" 語法
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
-# 底部數據日期腳註
-st.caption(f"數據最後更新日期：{price_df.index[-1].strftime('%Y-%m-%d')} | 驅動核心：OpenBB Core Engine V5.2")
+st.caption(f"數據最後更新日期：{price_df.index[-1].strftime('%Y-%m-%d')} | 驅動核心：OpenBB Core Engine V5.2 (雲端突圍版)")
