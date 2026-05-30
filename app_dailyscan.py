@@ -1,3 +1,7 @@
+import os
+# 強制將 OpenBB 的個人資料與快取目錄導向 Linux 雲端允許讀寫的 /tmp 暫存區
+os.environ["OPENBB_USER_SETTINGS_DIRECTORY"] = "/tmp/openbb/settings"
+os.environ["OPENBB_DATA_DIRECTORY"] = "/tmp/openbb/data"
 import streamlit as st
 import pandas as pd
 import numpy as np
