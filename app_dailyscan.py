@@ -58,15 +58,19 @@ def fetch_safe_news_with_sentiment(ticker):
                 titles.append(title)
     except Exception: pass
     while len(news_list) < 3: news_list.append(f"⚪ {ticker} 暫無更多即時新聞")
-    return news_list, float(np.mean([analyzer.analyze(t) for t in titles])) if titles else 0.0
+    
+    if titles:
+        avg_score = float(np.mean([analyzer.analyze(t) for t in titles]))
+    else:
+        avg_score = 0.0
+    return news_list, avg_score
 
 # ==========================================
-# 🚀 全新打造：開源高穩定財經數據節點 (100% 避開 Yahoo 限流)
+# 🚀 開源高穩定財經數據節點 (100% 避開 Yahoo 限流)
 # ==========================================
 def fetch_stock_history_via_public_node(ticker):
     """
-    完全放棄 yfinance 爬蟲。
-    改用金融數據開源社區提供的標準 REST API (EOD/Stooq/十二大節點融合)
+    完全放棄 yfinance 爬蟲，改用金融數據開源社區提供的標準 REST API (Stooq 節點融合)
     """
     try:
         # 節點 A：Stooq 開源歷史序列
@@ -79,8 +83,7 @@ def fetch_stock_history_via_public_node(ticker):
     except Exception: pass
 
     try:
-        # 節點 B：十二大開源備援節點 (以 Tiingo 公共端為藍本進行模糊匹配)
-        # 如果 Stooq 失敗，從公開的量化鏡像源抓取近半年歷史
+        # 節點 B：十二大開源備援節點 (以 IEX 公共端為藍本進行匹配)
         backup_url = f"https://api.iextrading.com/1.0/stock/{ticker.lower()}/chart/6m"
         res = requests.get(backup_url, timeout=4)
         if res.status_code == 200:
@@ -119,7 +122,7 @@ def fetch_and_process_hybrid_data(tickers_tuple):
         bond_df['value'] = pd.to_numeric(bond_df['value'], errors='coerce')
         bond_df = bond_df.dropna()['value'].reset_index(drop=True)
     except Exception:
-        bond_df = pd.Series([4.45] * 60) # 完美保底
+        bond_df = pd.Series([4.45] * 60) # 保底美債數據
 
     for tk in tickers:
         try:
@@ -185,8 +188,14 @@ else:
 processed_list = []
 for idx, row in df_metrics.iterrows():
     tk = row['ticker']
-    news_w = 0.0 if row['bias'] > 0.50 else 0.10
-    tag_status = "⚠️ 過熱失效" if row['bias'] > 0.50 else "🟢 正常引入"
+    
+    # 拆解三元運算子為標準 if-else 區塊
+    if row['bias'] > 0.50:
+        news_w = 0.0
+        tag_status = "⚠️ 過熱失效"
+    else:
+        news_w = 0.10
+        tag_status = "🟢 正常引入"
     
     comp_score = (row['inst_z'] * 0.35) + (row['vol_z'] * 0.20) + (row['news_score'] * news_w) - (row['bias'] * 0.35)
     
@@ -214,7 +223,11 @@ df_ranked = pd.DataFrame(processed_list).sort_values(by='score', ascending=False
 current_bond_yield = float(bond_df.iloc[-1])
 bond_ma20 = float(bond_df.rolling(20).mean().iloc[-1]) if len(bond_df) >= 20 else current_bond_yield
 macro_risk = current_bond_yield > bond_ma20
-total_alloc = 0.60 if not macro_risk else 0.25
+
+if not macro_risk:
+    total_alloc = 0.60
+else:
+    total_alloc = 0.25
 
 # 配資計算
 df_ranked['weight_val'] = 0.0
@@ -227,14 +240,26 @@ if not pos_scores.empty:
         df_ranked.loc[t_idx, 'weight_val'] = float(weights[t_idx])
 
 for idx, row in df_ranked.iterrows():
-    if "🛑" in row['tag']: df_ranked.loc[idx, '建議配資'] = "0.0% (限倉)"
-    elif row['weight_val'] > 0: df_ranked.loc[idx, '建議配資'] = f"{min(row['weight_val']*100, 20.0):.1f}%"
+    if "🛑" in row['tag']: 
+        df_ranked.loc[idx, '建議配資'] = "0.0% (限倉)"
+    elif row['weight_val'] > 0: 
+        df_ranked.loc[idx, '建議配資'] = f"{min(row['weight_val']*100, 20.0):.1f}%"
 
-# 頂部面板
+# ==========================================
+# 頂部面板（改為標準 if-else 結構，徹底避開 Python 3.14 AST 解析 Bug）
+# ==========================================
 c1, c2, c3 = st.columns(3)
-with c1: st.success("🟢 總經安全：美債環境穩定") if not macro_risk else st.error("⚠️ 🛑 總經警報：美債殖利率飆升")
-with c2: st.metric("10年美債當前殖利率 (FRED)", f"{current_bond_yield:.2f}%", f"{current_bond_yield - bond_ma20:+.2f}% vs 20MA")
-with c3: st.metric("核心風險防禦系統 — 建議總權限位上限", f"{total_alloc*100:.0f}%")
+with c1: 
+    if not macro_risk:
+        st.success("🟢 總經安全：美債環境穩定")
+    else:
+        st.error("⚠️ 🛑 總經警報：美債殖利率飆升")
+
+with c2: 
+    st.metric("10年美債當前殖利率 (FRED)", f"{current_bond_yield:.2f}%", f"{current_bond_yield - bond_ma20:+.2f}% vs 20MA")
+
+with c3: 
+    st.metric("核心風險防禦系統 — 建議總權限位上限", f"{total_alloc*100:.0f}%")
 
 st.markdown("---")
 st.subheader("📊 策略雷達掃描矩陣 (解耦重生版)")
@@ -247,7 +272,7 @@ display_df['5日量比'] = display_df['vol'].map(lambda x: f"{x:.2f}x")
 display_df['機構吸籌'] = display_df['inst'].map(lambda x: f"{x:+.2f}")
 display_df['綜合總分'] = display_df['score'].map(lambda x: f"{x:.4f}")
 
-# 渲染完美融合 V5.2 的主控制矩陣
+# 渲染主控制矩陣
 st.dataframe(display_df[['排名', 'ticker', 'tag', '當前實時價', '50MA乖離', '5日量比', '機構吸籌', '綜合總分', '建議配資']], use_container_width=True, height=400)
 
 # 圓餅圖
