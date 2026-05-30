@@ -3,4 +3,6 @@ pandas
 numpy
 plotly
 openbb
-openbb-yfinance
+yfinance
+requests
+nltk
