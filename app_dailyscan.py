@@ -22,6 +22,22 @@ st.set_page_config(
     layout="wide"
 )
 
+# 【終極突破】注入自訂 CSS，徹底榨乾螢幕寬度，將 Streamlit 預設的左右大白邊完全去除
+st.markdown(
+    """
+    <style>
+        .block-container {
+            padding-left: 2rem !important;
+            padding-right: 2rem !important;
+            padding-top: 2rem !important;
+            padding-bottom: 2rem !important;
+            max-width: 100% !important;
+        }
+    </style>
+    """,
+    unsafe_html=True
+)
+
 # ==========================================
 # 1. 數據獲取與核心計算邏輯 (OpenBB v4 雲端標準與備援雙引擎版)
 # ==========================================
@@ -151,7 +167,7 @@ stop_loss_prices = {}
 take_profit_prices = {}
 
 # ==========================================
-# 5. 決策樹核心過濾系統
+# 5. 決策樹核心過濾系統 (字串適度縮短精簡，避免文字過長撐寬欄位)
 # ==========================================
 for t in tickers:
     if t not in current_price.index: continue
@@ -166,38 +182,38 @@ for t in tickers:
     
     if p > m20:
         if inst_strength > 1.0:
-            system_tags[t] = "🔥 順勢多頭-機構高度鎖倉 (真核心)"
+            system_tags[t] = "🔥 多頭-機構高度鎖倉"
             stop_loss_prices[t] = f"${support_line * 0.997:.2f}"
             take_profit_prices[t] = f"${b_up:.2f}"
             total_scores[t] += 1.5 
         elif inst_strength < 0.1 and vol_change > 1.2:
-            system_tags[t] = "⚠️ 散戶情緒泡沫-無機構支持"
-            stop_loss_prices[t] = "建議逢高分批平倉"
+            system_tags[t] = "⚠️ 散戶泡沫-缺乏機構"
+            stop_loss_prices[t] = "逢高分批平倉"
             take_profit_prices[t] = "不建議追高"
             total_scores[t] -= 2.0 
         elif inst_strength > 0 and vol_change > 1.0:
-            system_tags[t] = "🦅 順勢多頭-標準量價流入"
+            system_tags[t] = "🦅 多頭-標準量價流入"
             stop_loss_prices[t] = f"${support_line * 0.997:.2f}"
             take_profit_prices[t] = f"${b_up:.2f}"
         else:
-            system_tags[t] = "⚠️ 順勢多頭-量價背離觀察"
+            system_tags[t] = "⚠️ 多頭-量價背離觀察"
             stop_loss_prices[t] = "不建議入場"
             take_profit_prices[t] = "不建議入場"
             total_scores[t] -= 0.5
             
     elif p <= b_low or (p < m20 and inst_strength > 2.0):
         if inst_strength > 0:
-            system_tags[t] = "⚡ 震盪系統-低位主力吸籌"
+            system_tags[t] = "⚡ 震盪-低位主力吸籌"
             stop_loss_prices[t] = f"${p * 0.997:.2f}"
             take_profit_prices[t] = f"${m20:.2f}"
             total_scores[t] += 1.0
         else:
-            system_tags[t] = "🛑 順勢空頭-左側摸底危險"
+            system_tags[t] = "🛑 空頭-左側摸底危險"
             stop_loss_prices[t] = "禁買"
             take_profit_prices[t] = "禁買"
             total_scores[t] -= 1.0
     else:
-        system_tags[t] = "💀 空頭系統-建議平倉/不碰"
+        system_tags[t] = "💀 空頭-建議平倉/不碰"
         stop_loss_prices[t] = "禁買"
         take_profit_prices[t] = "禁買"
         total_scores[t] -= 1.5
@@ -231,7 +247,7 @@ if not positive_stocks.empty:
         dashboard.loc[t, '動態配資權重_顯示'] = f"{weights[t]*100:.1f}%"
 
 # ==========================================
-# 7. 網頁 UI 渲染區 (上下分層全尺寸解鎖版)
+# 7. 網頁 UI 渲染區 (全螢幕終極解鎖版)
 # ==========================================
 col_macro1, col_macro2, col_macro3 = st.columns(3)
 with col_macro1:
@@ -242,12 +258,12 @@ with col_macro1:
 with col_macro2:
     st.metric(label="10年美債當前殖利率", value=f"{current_bond_yield:.2f}%", delta=f"{current_bond_yield - bond_ma20:+.2f}% vs 20MA")
 with col_macro3:
-    st.metric(label="核心風險防禦 system — 建議總權限位上限", value=f"{total_allocation*100:.0f}%")
+    st.metric(label="核心風險防禦系統 — 建議總權限位上限", value=f"{total_allocation*100:.0f}%")
 
 st.markdown("---")
 
 # ==========================================
-# 上層：大表格獨佔 100% 寬度（徹底解決滾輪問題）
+# 上層：大表格獨佔 100% 寬度（配合 CSS 邊距歸零，達到真正全寬）
 # ==========================================
 st.subheader("📊 策略雷達掃描矩陣")
 
@@ -261,17 +277,17 @@ display_df['決策樹修正總分'] = display_df['決策樹修正總分'].map(la
 display_df = display_df[['決策樹系統分類', '當前價', '20MA位置', '機構吸籌', '5日量能', '圖表安全止損位', '圖表預期止盈位', '動態配資權重_顯示', '決策樹修正總分']]
 display_df.columns = ['系統分類', '當前價', '20MA位置', '機構吸籌因子', '5日量比', '建議止損位', '預期止盈位', '配資權重', '策略總分']
 
-# 由於獨佔全寬，所有欄位將主動展開，完美對齊
+# 啟用全寬、加高顯示 (600)，給予所有欄位完美的伸展視野
 st.dataframe(
     display_df, 
     use_container_width=True, 
-    height=480
+    height=600
 )
 
 st.markdown("---")
 
 # ==========================================
-# 下層：圓餅圖移至下方並水平置中
+# 下層：圓餅圖獨立水平置中
 # ==========================================
 allocated_sum = dashboard['動態配資比率'].sum()
 cash_ratio = 1.0 - allocated_sum
@@ -292,14 +308,14 @@ fig = px.pie(
 fig.update_traces(textposition='inside', textinfo='percent+label')
 fig.update_layout(
     title_font=dict(size=18),
-    title_x=0.42,  # 讓圖表標題水平居中
-    showlegend=True,  # 下方排版空間充足，開啟圖例方便對照顏色
-    legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5), # 圖例改為下方橫排
+    title_x=0.44,  # 精準水平置中標題
+    showlegend=True, 
+    legend=dict(orientation="h", yanchor="bottom", y=-0.12, xanchor="center", x=0.5), # 下方橫排標籤
     margin=dict(t=60, b=60, l=10, r=10), 
     height=550
 )
 
-# 使用三欄式容器，將圓餅圖強行固定在網頁正中間，視覺效果最完美
+# 使用三欄式比例控位，將圓餅圖完美鎖定在中央
 col_space1, col_pie_main, col_space2 = st.columns([1, 2, 1])
 with col_pie_main:
     st.plotly_chart(fig, use_container_width=True)
