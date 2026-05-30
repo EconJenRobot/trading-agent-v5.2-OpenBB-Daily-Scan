@@ -232,7 +232,7 @@ if not positive_stocks.empty:
         dashboard.loc[t, '動態配資權重_顯示'] = f"{weights[t]*100:.1f}%"
 
 # ==========================================
-# 7. 網頁 UI 渲染區
+# 7. 網頁 UI 渲染區 (全尺寸無滾輪排版優化版)
 # ==========================================
 col_macro1, col_macro2, col_macro3 = st.columns(3)
 with col_macro1:
@@ -247,7 +247,8 @@ with col_macro3:
 
 st.markdown("---")
 
-col_left, col_right = st.columns([5, 3])
+# 【終極優化 1】將左右比例極大化（14:6），撥出巨大的橫向空間給左側表格
+col_left, col_right = st.columns([14, 6])
 
 with col_left:
     st.subheader("📊 策略雷達掃描矩陣")
@@ -259,16 +260,32 @@ with col_left:
     display_df['決策樹修正總分'] = display_df['決策樹修正總分'].map(lambda x: f"{x:.2f}")
     
     display_df = display_df[['決策樹系統分類', '當前價', '20MA位置', '機構吸籌', '5日量能', '圖表安全止損位', '圖表預期止盈位', '動態配資權重_顯示', '決策樹修正總分']]
-    display_df.columns = ['系統分類', '當前價', '20MA位置', '機構吸籌因子', '5日量比', '建議止損位', '預期止盈位', '動態配資權重', '策略修正總分']
+    display_df.columns = ['系統分類', '當前價', '20MA位置', '機構吸籌因子', '5日量比', '建議止損位', '預期止盈位', '配資權重', '策略總分']
     
-    st.dataframe(display_df, use_container_width=True, height=500)
+    # 【終極優化 2】使用彈性適應配置（不寫死欄位寬度），強制所有欄位自動等比例縮放填滿螢幕
+    st.dataframe(
+        display_df, 
+        use_container_width=True, 
+        height=520,
+        column_config={
+            "系統分類": st.column_config.TextColumn("系統分類", required=True),
+            "當前價": st.column_config.TextColumn("當前價"),
+            "20MA位置": st.column_config.TextColumn("20MA位置"),
+            "機構吸籌因子": st.column_config.TextColumn("機構吸籌因子"),
+            "5日量比": st.column_config.TextColumn("5日量比"),
+            "建議止損位": st.column_config.TextColumn("建議止損位"),
+            "預期止盈位": st.column_config.TextColumn("預期止盈位"),
+            "配資權重": st.column_config.TextColumn("配資權重"),
+            "策略總分": st.column_config.TextColumn("策略總分"),
+        }
+    )
 
 with col_right:
-    st.subheader("🎯 動態配資權重圓餅圖")
+    # 【終極優化 3】移除舊標題，解決文字因解析度擠壓在下方產生錯位「圖」字的問題
     allocated_sum = dashboard['動態配資比率'].sum()
     cash_ratio = 1.0 - allocated_sum
     
-    pie_data = dashboard[dashboard['動態配資比率'] > 0].copy()
+    pie_data = dashboard[dashboard['動態配资比率'] > 0].copy()
     cash_row = pd.DataFrame({'動態配資比率': [cash_ratio]}, index=['💵 現金防守水位 (Cash)'])
     pie_df = pd.concat([pie_data[['動態配資比率']], cash_row])
     pie_df['標的'] = pie_df.index
@@ -278,10 +295,19 @@ with col_right:
         values='動態配資比率', 
         names='標的', 
         hole=0.4,
+        title="🎯 動態配資權重分佈",  # 將標題直接整合嵌入在圓餅圖上方
         color_discrete_sequence=px.colors.qualitative.Pastel
     )
     fig.update_traces(textposition='inside', textinfo='percent+label')
-    fig.update_layout(showlegend=False, margin=dict(t=10, b=10, l=10, r=10), height=450)
+    fig.update_layout(
+        title_font=dict(size=18),
+        showlegend=False, 
+        margin=dict(t=50, b=10, l=10, r=10), 
+        height=500  # 完美對齊左邊表格的高度
+    )
     st.plotly_chart(fig, use_container_width=True)
+
+st.markdown("---")
+st.caption(f"數據最後更新日期：{price_df.index[-1].strftime('%Y-%m-%d')} | 驅動核心：OpenBB Core v4 Standard / yfinance Intelligent Engine")
 
 st.caption(f"數據最後更新日期：{price_df.index[-1].strftime('%Y-%m-%d')} | 驅動核心：OpenBB Core v4 Standard / yfinance Intelligent Engine")
