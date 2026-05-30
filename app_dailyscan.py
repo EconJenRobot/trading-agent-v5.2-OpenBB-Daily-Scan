@@ -231,7 +231,7 @@ if not positive_stocks.empty:
         dashboard.loc[t, '動態配資權重_顯示'] = f"{weights[t]*100:.1f}%"
 
 # ==========================================
-# 7. 網頁 UI 渲染區 (全寬度防捲軸完美版)
+# 7. 網頁 UI 渲染區 (上下分層全尺寸解鎖版)
 # ==========================================
 col_macro1, col_macro2, col_macro3 = st.columns(3)
 with col_macro1:
@@ -242,58 +242,66 @@ with col_macro1:
 with col_macro2:
     st.metric(label="10年美債當前殖利率", value=f"{current_bond_yield:.2f}%", delta=f"{current_bond_yield - bond_ma20:+.2f}% vs 20MA")
 with col_macro3:
-    st.metric(label="核心風險防禦系統 — 建議總權限位上限", value=f"{total_allocation*100:.0f}%")
+    st.metric(label="核心風險防禦 system — 建議總權限位上限", value=f"{total_allocation*100:.0f}%")
 
 st.markdown("---")
 
-# 【優化 1】將比例拉大到 14.5 : 5.5，給左邊表格最大化釋放橫向生存空間
-col_left, col_right = st.columns([14.5, 5.5])
+# ==========================================
+# 上層：大表格獨佔 100% 寬度（徹底解決滾輪問題）
+# ==========================================
+st.subheader("📊 策略雷達掃描矩陣")
 
-with col_left:
-    st.subheader("📊 策略雷達掃描矩陣")
-    display_df = dashboard.copy()
-    display_df['當前價'] = display_df['當前價'].map(lambda x: f"${x:.2f}")
-    display_df['20MA位置'] = display_df['20MA位置'].map(lambda x: f"${x:.2f}")
-    display_df['機構吸籌'] = display_df['機構吸籌'].map(lambda x: f"{x:+.2f}")
-    display_df['5日量能'] = display_df['5日量能'].map(lambda x: f"{x:.2f}x")
-    display_df['決策樹修正總分'] = display_df['決策樹修正總分'].map(lambda x: f"{x:.2f}")
-    
-    display_df = display_df[['決策樹系統分類', '當前價', '20MA位置', '機構吸籌', '5日量能', '圖表安全止損位', '圖表預期止盈位', '動態配資權重_顯示', '決策樹修正總分']]
-    display_df.columns = ['系統分類', '當前價', '20MA位置', '機構吸籌因子', '5日量比', '建議止損位', '預期止盈位', '配資權重', '策略總分']
-    
-    # 【優化 2】不單獨強制指定欄位型態，完全依靠彈性拉伸填滿，徹底乾淨地隱藏橫向捲軸
-    st.dataframe(
-        display_df, 
-        use_container_width=True, 
-        height=530
-    )
+display_df = dashboard.copy()
+display_df['當前價'] = display_df['當前價'].map(lambda x: f"${x:.2f}")
+display_df['20MA位置'] = display_df['20MA位置'].map(lambda x: f"${x:.2f}")
+display_df['機構吸籌'] = display_df['機構吸籌'].map(lambda x: f"{x:+.2f}")
+display_df['5日量能'] = display_df['5日量能'].map(lambda x: f"{x:.2f}x")
+display_df['決策樹修正總分'] = display_df['決策樹修正總分'].map(lambda x: f"{x:.2f}")
 
-with col_right:
-    # 【優化 3】修正錯字「配资」為繁體「配資」，完美解決 KeyError
-    allocated_sum = dashboard['動態配資比率'].sum()
-    cash_ratio = 1.0 - allocated_sum
-    
-    # 這裡已完美修正為繁體「動態配資比率」
-    pie_data = dashboard[dashboard['動態配資比率'] > 0].copy()
-    cash_row = pd.DataFrame({'動態配資比率': [cash_ratio]}, index=['💵 現金防守水位 (Cash)'])
-    pie_df = pd.concat([pie_data[['動態配資比率']], cash_row])
-    pie_df['標的'] = pie_df.index
-    
-    fig = px.pie(
-        pie_df, 
-        values='動態配資比率', 
-        names='標的', 
-        hole=0.4,
-        title="🎯 動態配資權重分佈",  # 標題完美整合進 Plotly
-        color_discrete_sequence=px.colors.qualitative.Pastel
-    )
-    fig.update_traces(textposition='inside', textinfo='percent+label')
-    fig.update_layout(
-        title_font=dict(size=18),
-        showlegend=False, 
-        margin=dict(t=50, b=10, l=10, r=10), 
-        height=500
-    )
+display_df = display_df[['決策樹系統分類', '當前價', '20MA位置', '機構吸籌', '5日量能', '圖表安全止損位', '圖表預期止盈位', '動態配資權重_顯示', '決策樹修正總分']]
+display_df.columns = ['系統分類', '當前價', '20MA位置', '機構吸籌因子', '5日量比', '建議止損位', '預期止盈位', '配資權重', '策略總分']
+
+# 由於獨佔全寬，所有欄位將主動展開，完美對齊
+st.dataframe(
+    display_df, 
+    use_container_width=True, 
+    height=480
+)
+
+st.markdown("---")
+
+# ==========================================
+# 下層：圓餅圖移至下方並水平置中
+# ==========================================
+allocated_sum = dashboard['動態配資比率'].sum()
+cash_ratio = 1.0 - allocated_sum
+
+pie_data = dashboard[dashboard['動態配資比率'] > 0].copy()
+cash_row = pd.DataFrame({'動態配資比率': [cash_ratio]}, index=['💵 現金防守水位 (Cash)'])
+pie_df = pd.concat([pie_data[['動態配資比率']], cash_row])
+pie_df['標的'] = pie_df.index
+
+fig = px.pie(
+    pie_df, 
+    values='動態配資比率', 
+    names='標的', 
+    hole=0.4,
+    title="🎯 動態配資權重分佈",
+    color_discrete_sequence=px.colors.qualitative.Pastel
+)
+fig.update_traces(textposition='inside', textinfo='percent+label')
+fig.update_layout(
+    title_font=dict(size=18),
+    title_x=0.42,  # 讓圖表標題水平居中
+    showlegend=True,  # 下方排版空間充足，開啟圖例方便對照顏色
+    legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5), # 圖例改為下方橫排
+    margin=dict(t=60, b=60, l=10, r=10), 
+    height=550
+)
+
+# 使用三欄式容器，將圓餅圖強行固定在網頁正中間，視覺效果最完美
+col_space1, col_pie_main, col_space2 = st.columns([1, 2, 1])
+with col_pie_main:
     st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("---")
