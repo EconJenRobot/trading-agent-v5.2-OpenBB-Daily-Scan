@@ -165,7 +165,7 @@ if st.sidebar.button("🔄 立即重新整理數據"):
 # 獲取最新時間
 current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-st.title("🦅 Trading Agent V5.8 終極戰略控制台")
+st.title("🦅 Trading J V1 美股戰略監控")
 st.subheader(f"混合開源數據流節點 + 全資產決策樹矩陣系統 | 數據時間: {current_time_str}")
 st.markdown("---")
 
